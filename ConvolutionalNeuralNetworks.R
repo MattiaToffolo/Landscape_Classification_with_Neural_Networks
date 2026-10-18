@@ -1,0 +1,453 @@
+# Dataset and libraries
+
+library("keras")
+
+base_dir <- "intel_immagini"
+train_dir <- file.path(base_dir, "train")
+test_dir <- file.path(base_dir, "test")
+
+train_forest_dir <- file.path(train_dir, "forest")
+train_glacier_dir <- file.path(train_dir, "glacier")
+train_mountain_dir <- file.path(train_dir, "mountain")
+train_buildings_dir <- file.path(train_dir, "buildings")
+train_sea_dir <- file.path(train_dir, "sea")
+train_street_dir <- file.path(train_dir, "street")
+test_forest_dir <- file.path(test_dir, "forest")
+test_glacier_dir <- file.path(test_dir, "glacier")
+test_mountain_dir <- file.path(test_dir, "mountain")
+test_buildings_dir <- file.path(test_dir, "buildings")
+test_sea_dir <- file.path(test_dir, "sea")
+test_street_dir <- file.path(test_dir, "street")
+
+# Training set
+
+cat("total training forest images:", length(list.files(train_forest_dir)), "\n")
+cat("total training glacier images:", length(list.files(train_glacier_dir)), "\n")
+cat("total training mountain images:", length(list.files(train_mountain_dir)), "\n")
+cat("total training buildings images:", length(list.files(train_buildings_dir)), "\n")
+cat("total training sea images:", length(list.files(train_sea_dir)), "\n")
+cat("total training street images:", length(list.files(train_street_dir)), "\n")
+
+# Test set
+
+cat("total test forest images:", length(list.files(test_forest_dir)), "\n")
+cat("total test glacier images:", length(list.files(test_glacier_dir)), "\n")
+cat("total test mountain images:", length(list.files(test_mountain_dir)), "\n")
+cat("total test buildings images:", length(list.files(test_buildings_dir)), "\n")
+cat("total test sea images:", length(list.files(test_sea_dir)), "\n")
+cat("total test street images:", length(list.files(test_street_dir)), "\n")
+
+train_datagen <- image_data_generator(rescale = 1 / 255, validation_split = 0.25)
+test_datagen <- image_data_generator(rescale = 1 / 255)
+train_generator <- flow_images_from_directory(
+  train_dir,
+  train_datagen,
+  target_size = c(150, 150),
+  batch_size = 32,
+  class_mode = "categorical",
+  subset = 'training'
+)
+validation_generator <- flow_images_from_directory(
+  train_dir,
+  train_datagen,
+  target_size = c(150, 150),
+  batch_size = 32,
+  class_mode = "categorical",
+  subset = 'validation'
+)
+test_generator <- flow_images_from_directory(
+  test_dir,
+  test_datagen,
+  target_size = c(150, 150),
+  batch_size = 32,
+  class_mode = "categorical"
+)
+modello_base <- keras_model_sequential() %>%
+  layer_conv_2d(
+    filters = 32, kernel_size = c(3, 3), activation = "relu",
+    input_shape = c(150, 150, 3)
+  ) %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_flatten() %>%
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dense(units = 6, activation = "softmax")
+modello_base %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+summary(modello_base)
+history_base <- modello_base %>% fit_generator(
+  train_generator,
+  steps_per_epoch = 30,
+  epochs = 30,
+  validation_data = validation_generator,
+  validation_steps = 30
+)
+plot(history_base)
+jpeg("modello_base.jpg")
+plot(history_base)
+dev.off()
+modello_base %>% evaluate_generator(test_generator, steps = 50)
+img_path <- file.path(train_buildings_dir, "392.jpg")
+img <- image_load(img_path, target_size = c(150, 150))
+img_tensor <- image_to_array(img)
+img_tensor <- array_reshape(img_tensor, c(1, 150, 150, 3))
+img_tensor <- img_tensor / 255
+plot(as.raster(img_tensor[1, , , ]))
+layer_outputs <- lapply(modello_base$layers[1:3], function(layer) layer$output)
+activation_model <- keras_model(inputs = modello_base$input, outputs = layer_outputs)
+activations <- activation_model %>% predict(img_tensor)
+first_layer_activation <- activations[[1]]
+dim(first_layer_activation)
+plot_channel <- function(channel) {
+  rotate <- function(x) t(apply(x, 2, rev))
+  image(rotate(channel), axes = FALSE, asp = 1, col = terrain.colors(12))
+}
+plot_channel(first_layer_activation[1, , , 2])
+plot_channel(first_layer_activation[1, , , 7])
+
+# Tensor creation
+
+train_datagen <- image_data_generator(rescale = 1 / 255, validation_split = 0.25)
+test_datagen <- image_data_generator(rescale = 1 / 255)
+train_generator <- flow_images_from_directory(
+  train_dir,
+  train_datagen,
+  target_size = c(150, 150),
+  batch_size = 64,
+  class_mode = "categorical",
+  subset = 'training'
+)
+validation_generator <- flow_images_from_directory(
+  train_dir,
+  train_datagen,
+  target_size = c(150, 150),
+  batch_size = 64,
+  class_mode = "categorical",
+  subset = 'validation'
+)
+test_generator <- flow_images_from_directory(
+  test_dir,
+  test_datagen,
+  target_size = c(150, 150),
+  batch_size = 64,
+  class_mode = "categorical"
+)
+
+# Without dropout: 20 epochs, 100 steps
+
+model_sd <- keras_model_sequential() %>%
+  layer_conv_2d(
+    filters = 32, kernel_size = c(3, 3), activation = "relu",
+    input_shape = c(150, 150, 3)
+  ) %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_flatten() %>%
+  layer_dense(units = 512, activation = "relu") %>%
+  layer_dense(units = 6, activation = "softmax")
+model_sd %>% compile(
+  loss = "categorical_crossentropy",
+  optimizer = optimizer_adam(learning_r = 1e-3),
+  metrics = c("accuracy")
+)
+summary(model_sd)
+history_sd <- model_sd %>% fit(
+  train_generator,
+  steps_per_epoch = 100,
+  epochs = 20,
+  validation_data = validation_generator,
+  validation_steps = 50,
+  callbacks = list(
+    callback_early_stopping(patience = 5, monitor = "accuracy", mode = "max")
+  )
+)
+plot(history_sd)
+jpeg("model_sd.jpg")
+plot(history_sd)
+dev.off()
+model_sd %>% evaluate_generator(test_generator, steps = 32)
+
+# With dropout: 20 epochs, 100 steps
+
+model_d <- keras_model_sequential() %>%
+  layer_conv_2d(
+    filters = 32, kernel_size = c(3, 3), activation = "relu",
+    input_shape = c(150, 150, 3)
+  ) %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_flatten() %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 512, activation = "relu") %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 6, activation = "softmax")
+summary(model_d)
+model_d %>% compile(
+  loss = "categorical_crossentropy",
+  optimizer = optimizer_adam(learning_r = 1e-3),
+  metrics = c("accuracy")
+)
+history_d <- model_d %>% fit(
+  train_generator,
+  steps_per_epoch = 100,
+  epochs = 20,
+  validation_data = validation_generator,
+  validation_steps = 50,
+  callbacks = list(
+    callback_early_stopping(patience = 5, monitor = "accuracy", mode = "max")
+  )
+)
+plot(history_d)
+jpeg("model_d.jpg")
+plot(history_d)
+dev.off()
+model_d %>% evaluate_generator(test_generator, steps = 32)
+
+# Preprocessing for data augmentation
+
+train_datagen <- image_data_generator(
+  rescale = 1 / 255,
+  rotation_range = 15,
+  width_shift_range = 0.2,
+  height_shift_range = 0.2,
+  shear_range = 0.2,
+  zoom_range = 0.2,
+  validation_split = 0.25
+)
+validation_datagen <- image_data_generator(rescale = 1 / 255, validation_split = 0.25)
+test_datagen <- image_data_generator(rescale = 1 / 255)
+train_generator <- flow_images_from_directory(
+  train_dir,
+  train_datagen,
+  target_size = c(150, 150),
+  batch_size = 64,
+  class_mode = "categorical",
+  seed = 1235,
+  shuffle = F,
+  subset = 'training'
+)
+validation_generator <- flow_images_from_directory(
+  train_dir,
+  validation_datagen,
+  target_size = c(150, 150),
+  batch_size = 64,
+  class_mode = "categorical",
+  subset = 'validation',
+  shuffle = F,
+  seed = 1235
+)
+test_generator <- flow_images_from_directory(
+  test_dir,
+  generator = test_datagen,
+  target_size = c(150, 150),
+  batch_size = 64,
+  class_mode = "categorical"
+)
+
+# With data augmentation
+
+model_DA_SDO <- keras_model_sequential() %>%
+  layer_conv_2d(
+    filters = 32, kernel_size = c(3, 3), activation = "relu",
+    input_shape = c(150, 150, 3)
+  ) %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_flatten() %>%
+  layer_dense(units = 512, activation = "relu") %>%
+  layer_dense(units = 6, activation = "softmax")
+summary(model_DA_SDO)
+model_DA_SDO %>% compile(
+  loss = "categorical_crossentropy",
+  optimizer = optimizer_rmsprop(learning_rate = 1e-4),
+  metrics = c("acc")
+)
+history_DA_SDO <- model_DA_SDO %>% fit_generator(
+  train_generator,
+  steps_per_epoch = 60,
+  epochs = 100,
+  validation_data = validation_generator,
+  validation_steps = 50
+)
+plot(history_DA_SDO)
+jpeg("model_DA_SDO.jpg")
+plot(history_DA_SDO)
+dev.off()
+model_DA_SDO %>% evaluate_generator(test_generator, steps = 50)
+fnames <- list.files(train_buildings_dir, full.names = TRUE)
+img_path <- fnames[[7]]
+img <- image_load(img_path, target_size = c(150, 150))
+img_array <- image_to_array(img)
+img_array <- array_reshape(img_array, c(1, 150, 150, 3))
+augmentation_generator <- flow_images_from_data(
+  img_array,
+  generator = train_datagen,
+  batch_size = 1
+)
+op <- par(mfrow = c(2, 2), pty = "s", mar = c(1, 0, 1, 0))
+for (i in 1:4) {
+  batch <- generator_next(augmentation_generator)
+  plot(as.raster(batch[1, , , ]))
+}
+
+# Preprocessing for data augmentation and dropout
+
+train_datagen <- image_data_generator(
+  rescale = 1 / 255,
+  rotation_range = 15,
+  width_shift_range = 0.2,
+  height_shift_range = 0.2,
+  shear_range = 0.2,
+  zoom_range = 0.2,
+  validation_split = 0.25
+)
+validation_datagen <- image_data_generator(rescale = 1 / 255, validation_split = 0.25)
+test_datagen <- image_data_generator(rescale = 1 / 255)
+train_generator <- flow_images_from_directory(
+  train_dir,
+  train_datagen,
+  target_size = c(150, 150),
+  batch_size = 64,
+  class_mode = "categorical",
+  seed = 1235,
+  shuffle = F,
+  subset = 'training'
+)
+validation_generator <- flow_images_from_directory(
+  train_dir,
+  validation_datagen,
+  target_size = c(150, 150),
+  batch_size = 64,
+  class_mode = "categorical",
+  subset = 'validation',
+  shuffle = F,
+  seed = 1235
+)
+test_generator <- flow_images_from_directory(
+  test_dir,
+  generator = test_datagen,
+  target_size = c(150, 150),
+  batch_size = 64,
+  class_mode = "categorical"
+)
+
+# With data augmentation and dropout
+
+model_da_do <- keras_model_sequential() %>%
+  layer_conv_2d(
+    filters = 32, kernel_size = c(3, 3), activation = "relu",
+    input_shape = c(150, 150, 3)
+  ) %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_flatten() %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 512, activation = "relu") %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 6, activation = "softmax")
+summary(model_da_do)
+model_da_do %>% compile(
+  loss = "categorical_crossentropy",
+  optimizer = optimizer_rmsprop(learning_rate = 1e-4),
+  metrics = c("acc")
+)
+history_da_do <- model_da_do %>% fit_generator(
+  train_generator,
+  steps_per_epoch = 60,
+  epochs = 100,
+  validation_data = validation_generator,
+  validation_steps = 50
+)
+model_da_do %>% save_model_hdf5("model_da_do.h5")
+plot(history_da_do)
+jpeg("model_da_do.jpg")
+plot(history_da_do)
+dev.off()
+model_da_do %>% evaluate_generator(test_generator, steps = 50)
+
+# Tensor creation
+
+train_datagen <- image_data_generator(rescale = 1 / 255, validation_split = 0.25)
+train_generator <- flow_images_from_directory(
+  train_dir,
+  train_datagen,
+  target_size = c(150, 150),
+  batch_size = 64,
+  class_mode = "categorical",
+  subset = 'training'
+)
+validation_generator <- flow_images_from_directory(
+  train_dir,
+  train_datagen,
+  target_size = c(150, 150),
+  batch_size = 64,
+  class_mode = "categorical",
+  subset = 'validation'
+)
+
+# VGG19
+
+conv_base <- application_vgg19(
+  weights = "imagenet",
+  include_top = FALSE,
+  input_shape = c(150, 150, 3)
+)
+unfreeze_weights(conv_base, from = "block4_conv1")
+conv_base
+model.vgg <- keras_model_sequential() %>%
+  conv_base %>%
+  layer_flatten() %>%
+  layer_dropout(rate = 0.4) %>%
+  layer_dense(units = 256, activation = "relu") %>%
+  layer_dense(units = 6, activation = "softmax")
+model.vgg %>% compile(
+  loss = "categorical_crossentropy",
+  optimizer = optimizer_rmsprop(learning_rate = 1e-5),
+  metrics = c("accuracy")
+)
+history.vgg <- model.vgg %>% fit_generator(
+  train_generator,
+  steps_per_epoch = 10,
+  epochs = 75,
+  validation_data = validation_generator,
+  validation_steps = 10
+)
+model.vgg %>% save_model_hdf5("modello_vgg19_migliore_75")
+test_datagen = image_data_generator(rescale = 1 / 255)
+test_generator <- flow_images_from_directory(
+  test_dir,
+  test_datagen,
+  target_size = c(150, 150),
+  batch_size = 20,
+  class_mode = "categorical"
+)
+plot(history.vgg)
+jpeg("model.vgg.jpg")
+plot(history.vgg)
+dev.off()
+model.vgg %>% evaluate_generator(test_generator, steps = 50)
